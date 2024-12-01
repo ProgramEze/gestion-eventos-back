@@ -1,0 +1,33 @@
+{
+  "name": "api-gestion-eventos",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon app.js",
+    "dev": "node dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "body-parser": "^1.20.3",
+    "connect-session-sequelize": "^7.1.7",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "express": "^4.21.1",
+    "express-session": "^1.18.1",
+    "http-errors": "^2.0.0",
+    "method-override": "^3.0.0",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.11.4",
+    "nodemon": "^3.1.7",
+    "passport": "^0.7.0",
+    "passport-local": "^1.0.0",
+    "path": "^0.12.7",
+    "pdfkit": "^0.15.1",
+    "sequelize": "^6.37.5"
+  }
+}
