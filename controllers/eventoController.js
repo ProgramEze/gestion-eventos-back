@@ -1,8 +1,9 @@
 // controllers/eventoController.js
-const { Evento, sequelize } = require("../models/relaciones");
+const { Evento, Participacion, sequelize } = require("../models/relaciones");
 const { format, parseISO, isBefore } = require("date-fns");
 const { es } = require("date-fns/locale");
-const { Op, fn } = require("sequelize");
+const { Op, fn, literal } = require("sequelize");
+
 // obtenerEventosFuturos
 const eventoController = {
 	crearEvento: async (req, res) => {
@@ -167,41 +168,221 @@ const eventoController = {
 		}
 	},
 
-	// Obtener eventos futuros con paginación y filtro por nombre
-	obtenerEventosFuturos: async (req, res) => {
+	obtenerEventosParticipados: async (req, res) => {
 		try {
-			// Obtener los parámetros de consulta de la URL (página, límite y búsqueda por nombre)
-			const { page = 1, limit = 10, search = "" } = req.query;
+			let {
+				pagina = 1,
+				tamanoPagina = 10,
+				filtro = "",
+				fechaInicio = "",
+				fechaFin = "",
+			} = req.query;
 
-			// Calcular el desplazamiento (offset) basado en la página y el límite
-			const offset = (page - 1) * limit;
+			pagina = parseInt(pagina, 10);
+			tamanoPagina = parseInt(tamanoPagina, 10);
 
-			// Realizar la consulta con paginación y filtrado por nombre (si se proporciona)
-			const eventos = await Evento.findAndCountAll({
-				where: {
-					fecha: {
-						[Op.gte]: new Date(), // Solo eventos futuros
-					},
-					nombre: {
-						[Op.iLike]: `%${search}%`, // Filtrado insensible a mayúsculas/minúsculas
-					},
-				},
-				limit: parseInt(limit), // Límite de resultados por página
-				offset: parseInt(offset), // Desplazamiento basado en la página actual
-				order: [["fecha", "ASC"]], // Ordenar los eventos por fecha ascendente
-			});
+			if (isNaN(pagina) || pagina < 1) pagina = 1;
+			if (isNaN(tamanoPagina) || tamanoPagina < 1) tamanoPagina = 10;
 
-			// Responder con los eventos y la información de paginación
+			const offset = (pagina - 1) * tamanoPagina;
+			const maxTamanoPagina = 100;
+			const size = Math.min(tamanoPagina, maxTamanoPagina);
+
+			const where = {
+				[Op.and]: [
+					filtro
+						? {
+								[Op.or]: [
+									{ nombre: { [Op.like]: `%${filtro}%` } },
+									{ ubicacion: { [Op.like]: `%${filtro}%` } },
+									{
+										descripcion: {
+											[Op.like]: `%${filtro}%`,
+										},
+									},
+								],
+						  }
+						: {},
+					fechaInicio && fechaFin
+						? { fecha: { [Op.between]: [fechaInicio, fechaFin] } }
+						: fechaInicio
+						? { fecha: { [Op.gte]: fechaInicio } }
+						: fechaFin
+						? { fecha: { [Op.lte]: fechaFin } }
+						: {},
+				],
+			};
+
+			const { rows: eventos, count: totalEventos } =
+				await Evento.findAndCountAll({
+					where,
+					include: [
+						{
+							model: Participacion,
+							where: { idAsistente: req.user.idAsistente },
+							attributes: [],
+						},
+					],
+					limit: size,
+					offset,
+					order: [["fecha", "ASC"]],
+				});
+
+			const totalPaginas = Math.ceil(totalEventos / size);
+
 			res.status(200).json({
-				eventos: eventos.rows,
-				total: eventos.count,
-				page: page,
-				totalPages: Math.ceil(eventos.count / limit),
+				pagina,
+				tamanoPagina: size,
+				totalEventos,
+				totalPaginas,
+				eventos,
+				prev:
+					pagina > 1
+						? `/api/eventos/participados?pagina=${pagina - 1}`
+						: null,
+				next:
+					pagina < totalPaginas
+						? `/api/eventos/participados?pagina=${pagina + 1}`
+						: null,
 			});
 		} catch (error) {
-			res.status(500).json({ error: "Error al obtener los eventos" });
+			console.error(
+				"Error al obtener eventos participados:",
+				error.message
+			);
+			res.status(500).json({
+				mensaje: "request: ",
+				error:
+					"Error al obtener eventos participados. Error: " +
+					error.message,
+			});
 		}
 	},
+
+	obtenerEventosNoParticipados: async (req, res) => {
+		try {
+			let {
+				pagina = 1,
+				tamanoPagina = 10,
+				filtro = "",
+				fechaInicio = "",
+				fechaFin = "",
+			} = req.query;
+
+			pagina = parseInt(pagina, 10);
+			tamanoPagina = parseInt(tamanoPagina, 10);
+
+			if (isNaN(pagina) || pagina < 1) pagina = 1;
+			if (isNaN(tamanoPagina) || tamanoPagina < 1) tamanoPagina = 10;
+
+			const offset = (pagina - 1) * tamanoPagina;
+			const maxTamanoPagina = 100;
+			const size = Math.min(tamanoPagina, maxTamanoPagina);
+
+			console.log(req.user);
+
+			const where = {
+				[Op.and]: [
+					filtro
+						? {
+								[Op.or]: [
+									{ nombre: { [Op.like]: `%${filtro}%` } },
+									{ ubicacion: { [Op.like]: `%${filtro}%` } },
+									{
+										descripcion: {
+											[Op.like]: `%${filtro}%`,
+										},
+									},
+								],
+						  }
+						: {},
+					fechaInicio && fechaFin
+						? { fecha: { [Op.between]: [fechaInicio, fechaFin] } }
+						: fechaInicio
+						? { fecha: { [Op.gte]: fechaInicio } }
+						: fechaFin
+						? { fecha: { [Op.lte]: fechaFin } }
+						: {},
+					{
+						idEvento: {
+							[Op.notIn]: literal(
+								`(SELECT idEvento FROM participacion WHERE idAsistente = ${req.user.idAsistente})`
+							),
+						},
+					},
+				],
+			};
+
+			const { rows: eventos, count: totalEventos } =
+				await Evento.findAndCountAll({
+					where,
+					limit: size,
+					offset,
+					order: [["fecha", "ASC"]],
+				});
+
+			const totalPaginas = Math.ceil(totalEventos / size);
+
+			res.status(200).json({
+				pagina,
+				tamanoPagina: size,
+				totalEventos,
+				totalPaginas,
+				eventos,
+				prev:
+					pagina > 1
+						? `/api/eventos/no-participados?pagina=${pagina - 1}`
+						: null,
+				next:
+					pagina < totalPaginas
+						? `/api/eventos/no-participados?pagina=${pagina + 1}`
+						: null,
+			});
+		} catch (error) {
+			console.error("Error al obtener eventos no participados:", error);
+			res.status(500).json({
+				error: "Error al obtener eventos no participados",
+			});
+		}
+	},
+
+	obtenerCantidadEventosHastaFinAnio: async (req, res) => {
+		try {
+			const fechaActual = new Date();
+			const finAnio = new Date(fechaActual.getFullYear(), 11, 31); // 31 de diciembre del año actual
+
+			const cantidadEventos = await Evento.count({
+				where: {
+					fecha: {
+						[Op.between]: [fechaActual, finAnio],
+					},
+				},
+			});
+
+			res.status(200).json({
+				cantidadEventos,
+			});
+		} catch (error) {
+			res.status(500).json({
+				error:
+					"Error al obtener la cantidad de eventos. Error: " +
+					error.message,
+			});
+		}
+	},
+
+	obtenerCincoEventos: async (req, res) => {
+		try {
+		  const eventos = await Evento.findAll({
+			limit: 5,
+			order: [['fecha', 'ASC']],
+		  });
+		  console.log(eventos);
+		  res.status(200).json(eventos); // Devolver un array directamente
+		} catch (error) {
+		  res.status(500).json({ error: 'Error al obtener los eventos: ' + error.message });
+		}
+	  },
 
 	obtenerEventoPorId: async (req, res) => {
 		try {
@@ -220,20 +401,57 @@ const eventoController = {
 		try {
 			const { idEvento } = req.params;
 			const { nombre, fecha, ubicacion, descripcion } = req.body;
-			if (!nombre ||!fecha ||!ubicacion ||!descripcion) {
-                return res.status(400).json({ error: "Todos los campos son obligatorios" });
-            }
+			if (!nombre || !fecha || !ubicacion || !descripcion) {
+				return res
+					.status(400)
+					.json({ error: "Todos los campos son obligatorios" });
+			}
 			const evento = await Evento.findByPk(idEvento);
 			if (!evento) {
 				return res.status(404).json({ error: "Evento no encontrado" });
 			}
-			console.log(isBefore(new Date(), evento.fecha));
+
+			if (isBefore(evento.fecha, new Date())) {
+				return res.status(400).json({
+					error: "No pueden editarse eventos que ya han pasado.",
+				});
+			}
+
+			// Convertir la fecha ingresada desde el input y la fecha actual a objetos Date
+			const fechaEvento = parseISO(fecha);
+			const fechaActual = new Date(); // Fecha actual con la hora local
+
+			// Imprimir en consola las fechas para depuración
+			console.log("Fecha ingresada por input:", fecha);
+			console.log(
+				"Fecha actual:",
+				format(fechaActual, "EEEE d 'de' MMMM 'de' yyyy", {
+					locale: es,
+				})
+			);
+			console.log(
+				"Fecha del evento:",
+				format(fechaEvento, "EEEE d 'de' MMMM 'de' yyyy", {
+					locale: es,
+				})
+			);
+
+			console.log(isBefore(fechaEvento, fechaActual));
+
+			// Comparar si la fecha del evento es anterior a la fecha actual
+			if (isBefore(fechaEvento, fechaActual)) {
+				return res.status(400).json({
+					error: "La fecha del evento no puede ser anterior a la fecha actual",
+				});
+			}
 			const [updated] = await Evento.update(
 				{ nombre, fecha, ubicacion, descripcion },
 				{ where: { idEvento } }
 			);
 			if (!updated) {
-				return res.status(404).json({ error: "Evento no encontrado" });
+				return res
+					.status(404)
+					.json({ error: "No ha realizado ninguna actualización" });
 			}
 			res.status(200).json({
 				message: "¡Evento actualizado exitosamente!",

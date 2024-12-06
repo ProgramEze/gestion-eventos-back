@@ -89,42 +89,6 @@ router.get("/rol", authorize(["Organizador", "Asistente"]), (req, res) => {
 	}
 });
 
-router.post("/cambiar-password", (req, res) => {
-	try {
-		const { email, passwordVieja, passwordNueva, passwordConfirm } =
-			req.body;
-		const asistente = Asistente.findOne({ where: { email } });
-		if (!asistente) {
-			return res.status(404).json({ error: "Asistente no encontrado" });
-		}
-		const passwordCorrecta = bcrypt.compare(
-			passwordVieja,
-			asistente.password
-		);
-		if (!passwordCorrecta) {
-			return res.status(401).json({ error: "Contraseña incorrecta" });
-		}
-		if (passwordNueva !== passwordConfirm) {
-			return res
-				.status(401)
-				.json({ error: "Las contraseñas no coinciden" });
-		}
-		const hashedPassword = bcrypt.hash(passwordConfirm, 5);
-		const [updated] = Asistente.update(
-			{ password: hashedPassword },
-			{ where: { email } }
-		);
-		if (!updated) {
-			return res.status(404).json({ error: "Asistente no encontrado" });
-		}
-		res.status(200).json({
-			message: "¡Contraseña actualizada exitosamente!",
-		});
-	} catch (error) {
-		res.status(500).json({ error: "Error al actualizar la contraseña" });
-	}
-});
-
 router.post("/registrar", async (req, res) => {
 	try {
 		const { nombre, domicilio, email, password } = req.body;

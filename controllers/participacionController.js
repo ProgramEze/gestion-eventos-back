@@ -1,24 +1,97 @@
 const { Participacion, Asistente, Evento } = require("../models/relaciones");
 const PDFDocument = require("pdfkit");
-const { format } = require("date-fns");
+const { format, parseISO } = require("date-fns");
 const { es } = require("date-fns/locale");
 const { Op, fn } = require("sequelize");
 
-// Función para generar el PDF del certificado
 function generarCertificadoPdf(nombre, evento, fecha) {
-	const fechaFormateada = format(
-		new Date(fecha),
-		"EEEE d 'de' MMMM 'de' yyyy",
-		{ locale: es }
-	);
-	const doc = new PDFDocument({ size: "A4", margin: 50 });
-	doc.fontSize(25).text(`Certificado de Participación`, { align: "center" });
-	doc.moveDown();
-	doc.fontSize(18).text(`Nombre: ${nombre}`, { align: "left" });
-	doc.fontSize(18).text(`Evento: ${evento}`, { align: "left" });
-	doc.fontSize(18).text(`Fecha: ${fechaFormateada}`, { align: "left" });
-	return doc;
+  const fechaFormateada = format(
+    new Date(fecha),
+    "EEEE d 'de' MMMM 'de' yyyy",
+    { locale: es }
+  );
+  // Crear el documento PDF con tamaño A4 y márgenes
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+
+  // Borde alrededor del certificado
+  doc.rect(20, 20, 555, 770).stroke();
+
+  // Encabezado del certificado
+  doc
+    .fontSize(32)
+    .font('Helvetica-Bold')
+    .fillColor('#1a237e') // Azul oscuro
+    .text('CERTIFICADO DE PARTICIPACIÓN', { align: 'center' })
+    .moveDown(2);
+
+  // Cuerpo principal
+  doc
+    .fontSize(18)
+    .font('Helvetica')
+    .fillColor('black')
+    .text(`Por la presente se certifica que`, {
+      align: 'center',
+    })
+    .moveDown();
+
+  // Nombre del asistente
+  doc
+    .fontSize(28)
+    .font('Helvetica-Bold')
+    .fillColor('#d32f2f') // Rojo oscuro
+    .text(`${nombre}`, { align: 'center' })
+    .moveDown(1.5);
+
+  // Detalles del evento
+  doc
+    .fontSize(18)
+    .font('Helvetica')
+    .fillColor('black')
+    .text(`Ha participado satisfactoriamente en el evento`, {
+      align: 'center',
+    })
+    .moveDown();
+
+  // Nombre del evento
+  doc
+    .fontSize(24)
+    .font('Helvetica-Bold')
+    .fillColor('#1976d2') // Azul
+    .text(`${evento}`, { align: 'center' })
+    .moveDown();
+
+  // Fecha del evento
+  doc
+    .fontSize(18)
+    .font('Helvetica')
+    .fillColor('black')
+    .text(`Llevado a cabo el día ${fechaFormateada}.`, {
+      align: 'center',
+    })
+    .moveDown(3);
+
+  // Firma y pie de página
+  doc
+    .fontSize(16)
+    .text('___________________________', { align: 'center' })
+    .text('Organizador del Evento', { align: 'center' })
+    .moveDown(2);
+
+  doc
+    .fontSize(12)
+    .fillColor('gray')
+    .text(
+      'Este certificado ha sido generado automáticamente y es válido sin necesidad de firma física.',
+      {
+        align: 'center',
+      }
+    );
+
+  return doc;
 }
+
+module.exports = { generarCertificadoPdf };
+
 
 const participacionController = {
 	crearParticipacion: async (req, res) => {
@@ -34,18 +107,15 @@ const participacionController = {
 			});
 		} catch (error) {
 			res.status(500).json({
-				error: "Error al registrar la participación",
+				error:
+					"Error al registrar la participación. Error: " +
+					error.message,
 			});
 		}
 	},
 
 	obtenerParticipacionesPorEvento: async (req, res) => {
 		try {
-			console.log(
-				"obtenerParticipacionesPorEvento",
-				req.params,
-				req.query
-			);
 			const { idEvento } = req.params;
 			let { pagina = 1, tamanoPagina = 10, filtro = "" } = req.query;
 
@@ -160,23 +230,21 @@ const participacionController = {
 
 	obtenerParticipacionPorId: async (req, res) => {
 		try {
-			const { idParticipacion } = req.params;
-			const participacion = await Participacion.findByPk(
-				idParticipacion,
-				{ include: [Asistente, Evento] }
-			);
-			if (!participacion) {
-				return res
-					.status(404)
-					.json({ error: "Participación no encontrada" });
-			}
-			res.status(200).json(participacion);
+		  const { idAsistente, idEvento } = req.query; // Cambiar req.body por req.query
+		  const participacion = await Participacion.findOne({
+			where: { idAsistente, idEvento },
+			include: [Asistente, Evento],
+		  });
+		  if (!participacion) {
+			return res.status(404).json({ error: "Participación no encontrada" });
+		  }
+		  res.status(200).json(participacion);
 		} catch (error) {
-			res.status(500).json({
-				error: "Error al obtener la participación",
-			});
+		  res.status(500).json({
+			error: "Error al obtener la participación",
+		  });
 		}
-	},
+	  },
 
 	bajaConfirmacion: async (req, res) => {
 		try {
@@ -227,34 +295,40 @@ const participacionController = {
 
 	generarCertificado: async (req, res) => {
 		try {
-			const { idParticipacion } = req.params;
-			const participacion = await Participacion.findByPk(
-				idParticipacion,
-				{ include: [Asistente, Evento] }
-			);
-			if (!participacion) {
-				return res
-					.status(404)
-					.json({ error: "Participación no encontrada" });
-			}
-			const { nombre } = participacion.Asistente;
-			const { nombre: evento, fecha } = participacion.Evento;
-			const doc = generarCertificadoPdf(nombre, evento, fecha);
+		  const { idParticipacion } = req.params;
+		  const participacion = await Participacion.findByPk(idParticipacion, {
+			include: [Asistente, Evento],
+		  });
+		  if (!participacion) {
+			return res.status(404).json({ error: "Participación no encontrada" });
+		  }
 
-			res.setHeader("Content-Type", "application/pdf");
-			res.setHeader(
-				"Content-Disposition",
-				`attachment; filename=certificado_${nombre}_${evento}.pdf`
-			);
-			doc.pipe(res);
-			doc.end();
+		  const { nombre } = participacion.Asistente;
+		  const { nombre: evento, fecha } = participacion.Evento;
+
+		  console.log(fecha);
+		  const doc = generarCertificadoPdf(nombre, evento, parseISO(fecha));
+
+		  res.setHeader("Content-Type", "application/pdf");
+		  res.setHeader(
+			"Content-Disposition",
+			`attachment; filename=certificado_${nombre}_${evento}.pdf`
+		  );
+
+		  doc.pipe(res);
+		  doc.on('end', () => res.end()); // Importante para cerrar la respuesta correctamente
+		  doc.end();
 		} catch (error) {
-			res.status(500).json({ error: "Error al generar el certificado" });
+		  console.error("Error al generar el certificado:", error);
+		  res.status(500).json({ error: "Error al generar el certificado" });
 		}
-	},
+	  },
 
 	confirmarParticipacion: async (req, res) => {
 		try {
+			if(res.statusCode === 401){
+				return res.status(401).json({ error: "No autorizado" });
+			}
 			const { idParticipacion } = req.params;
 			const [updated] = await Participacion.update(
 				{ confirmacion: true },
@@ -271,68 +345,6 @@ const participacionController = {
 		} catch (error) {
 			res.status(500).json({
 				error: "Error al confirmar la participación",
-			});
-		}
-	},
-
-	obtenerParticipacionesPorConfirmarPorEvento: async (req, res) => {
-		try {
-			const participaciones = await Participacion.findAll({
-				where: { confirmacion: false, idEvento: req.params.idEvento },
-				include: [Asistente, Evento],
-			});
-			res.status(200).json(participaciones);
-		} catch (error) {
-			res.status(500).json({
-				error: "Error al obtener las participaciones por confirmar",
-			});
-		}
-	},
-
-	obtenerParticipacionesConfirmadasPorEvento: async (req, res) => {
-		try {
-			const participaciones = await Participacion.findAll({
-				where: { confirmacion: true, idEvento: req.params.idEvento },
-				include: [Asistente, Evento],
-			});
-			res.status(200).json(participaciones);
-		} catch (error) {
-			res.status(500).json({
-				error: "Error al obtener las participaciones confirmadas",
-			});
-		}
-	},
-
-	obtenerParticipacionesPorConfirmarPorAsistente: async (req, res) => {
-		try {
-			const participaciones = await Participacion.findAll({
-				where: {
-					confirmacion: false,
-					idAsistente: req.params.idAsistente,
-				},
-				include: [Asistente, Evento],
-			});
-			res.status(200).json(participaciones);
-		} catch (error) {
-			res.status(500).json({
-				error: "Error al obtener las participaciones por confirmar",
-			});
-		}
-	},
-
-	obtenerParticipacionesConfirmadasPorAsistente: async (req, res) => {
-		try {
-			const participaciones = await Participacion.findAll({
-				where: {
-					confirmacion: true,
-					idAsistente: req.params.idAsistente,
-				},
-				include: [Asistente, Evento],
-			});
-			res.status(200).json(participaciones);
-		} catch (error) {
-			res.status(500).json({
-				error: "Error al obtener las participaciones confirmadas",
 			});
 		}
 	},
